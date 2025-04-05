@@ -1,0 +1,177 @@
+name: FoliaBuild
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16 * * *"
+
+jobs:
+  build-default-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.save_release_upload_url.outputs.url }}
+
+    steps:
+      - name: set the git information
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: set-timezone
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+      - name: clone folia repo
+        run: |
+          git clone https://github.com/PaperMC/Folia.git ~/folia
+      - name: get_java_version_default
+        id: get_java_version_default
+        run: |
+          echo "::set-output name=get_java_version_default::$(cat ~/folia/.github/workflows/build.yml | grep java-version | sed 's/^.........................//' | sed 's/^.................//' | sed 's/.$//')"
+      - name: get_patch_command_default
+        id: get_patch_command_default
+        run: |
+          echo "::set-output name=get_patch_command_default::$(cat ~/folia/.github/workflows/build.yml | grep apply | sed 's/^...//' | sed 's/^..........//' | sed 's/$//')"
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ steps.get_java_version_default.outputs.get_java_version_default }}
+          distribution: 'zulu'
+
+      - name: Get dev branch info
+        id: dev
+        run: |
+          cd ~/folia
+          echo "::set-output name=dev::$(git branch -a | grep dev | sed 's/^.................//' | sort -rV )"
+      - name: applyPatches
+        run: |
+          cd ~/folia
+          ${{ steps.get_patch_command_default.outputs.get_patch_command_default }}
+      - name: building...
+        run: |
+          cd ~/folia
+          ./gradlew createMojmapPaperclipJar
+      - name: Get date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+
+      - name: get_jar_name_default
+        id: get_jar_name_default
+        run: echo "::set-output name=name::$(ls ~/folia/build/libs/ | grep paperclip)"
+
+      - name: rename file
+        run: mv ~/folia/build/libs/${{ steps.get_jar_name_default.outputs.name }} ~/folia/build/libs/[main]${{ steps.get_jar_name_default.outputs.name }}
+
+      - name: get_commit_info_default
+        id: get_commit_info_default
+        run: |
+          cd ~/folia
+          echo "::set-output name=commit_info2::[($(git rev-parse --short HEAD))](https://github.com/papermc/folia/commit/$(git rev-parse HEAD)): $(git log -1 --pretty=format:'%s')"
+          echo "::set-output name=commit_info4::[($(git rev-parse --short origin/${{ steps.dev.outputs.dev }}))](https://github.com/papermc/folia/commit/$(git rev-parse origin/${{ steps.dev.outputs.dev }})): $(git log -1 --pretty=format:'%s')"
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.date.outputs.date }}
+          release_name: ${{ steps.date.outputs.date }}
+          body: |
+            ### 🛠️ 编译信息 - 构建于 `${{ steps.date.outputs.date }}`
+            #### 📌 默认分支 (`default`)
+            - ${{ steps.get_commit_info_default.outputs.commit_info2 }}
+            #### 🌱 开发分支 (`${{ steps.dev.outputs.dev }}`)
+            - ${{ steps.get_commit_info_default.outputs.commit_info4 }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload_release_asset_default
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} 
+          asset_path: "/home/runner/folia/build/libs/[main]${{ steps.get_jar_name_default.outputs.name }}"
+          asset_name: "[main]${{ steps.get_jar_name_default.outputs.name }}"
+          asset_content_type: application/java-archive
+
+      - name: save_release_upload_url
+        id: save_release_upload_url
+        run: |
+          echo "url=${{ steps.create_release.outputs.upload_url }}" >> "$GITHUB_OUTPUT"
+    permissions:
+      contents: write
+
+  build-dev-branch:
+    runs-on: ubuntu-latest
+    needs: build-default-branch
+
+    steps:
+      - name: set the git information
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: set-timezone
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+      - name: clone folia repo
+        run: |
+          git clone https://github.com/PaperMC/Folia.git ~/folia
+      - name: Get dev branch info
+        id: dev1
+        run: |
+          cd ~/folia
+          echo "::set-output name=dev1::$(git branch -a | grep dev | sed 's/^.................//' | sort -rV )"
+      - name: checkout dev branch
+        run: |
+          cd ~/folia
+          git checkout ${{ steps.dev1.outputs.dev1 }}
+      - name: get_java_version_dev
+        id: get_java_version_dev
+        run: |
+          echo "::set-output name=get_java_version_dev::$(cat ~/folia/.github/workflows/build.yml | grep java-version | sed 's/^.........................//' | sed 's/^.................//' | sed 's/.$//')"
+      - name: get_patch_command_dev
+        id: get_patch_command_dev
+        run: |
+          echo "::set-output name=get_patch_command_dev::$(cat ~/folia/.github/workflows/build.yml | grep apply | sed 's/^...//' | sed 's/^..........//' | sed 's/$//')"
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ steps.get_java_version_dev.outputs.get_java_version_dev }}
+          distribution: 'zulu'
+
+      - name: applyPatches
+        run: |
+          cd ~/folia
+          ${{ steps.get_patch_command_dev.outputs.get_patch_command_dev }}
+      - name: building...
+        run: |
+          cd ~/folia
+          ./gradlew createMojmapPaperclipJar
+      - name: Get date
+        id: date1
+        run: echo "::set-output name=date1::$(date +'%Y-%m-%d')"
+
+      - name: get_jar_name_dev
+        id: get_jar_name_dev
+        run: echo "::set-output name=name1::$(ls ~/folia/folia-server/build/libs/ | grep paperclip)"
+
+      - name: rename file
+        run: |
+          mv ~/folia/folia-server/build/libs/${{ steps.get_jar_name_dev.outputs.name1 }} ~/folia/folia-server/build/libs/[dev]${{ steps.get_jar_name_dev.outputs.name1 }}
+      - name: Upload Release Asset
+        id: upload_release_asset_dev
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.build-default-branch.outputs.url }}
+          asset_path: "/home/runner/folia/folia-server/build/libs/[dev]${{ steps.get_jar_name_dev.outputs.name1 }}"
+          asset_name: "[dev]${{ steps.get_jar_name_dev.outputs.name1 }}"
+          asset_content_type: application/java-archive
+
+    permissions:
+      contents: write
